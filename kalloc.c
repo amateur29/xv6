@@ -11,7 +11,6 @@
 
 void freerange(void *vstart, void *vend);
 extern char end[]; // first address after kernel loaded from ELF file
-                   // defined by the kernel linker script in kernel.ld
 
 struct run {
   struct run *next;
@@ -22,6 +21,10 @@ struct {
   int use_lock;
   struct run *freelist;
 } kmem;
+
+// TASK 3: global struct of pages in physical memory stats (from defs.h)
+struct memory_pages_stats phys_mem_pages_stats; 
+
 
 // Initialization happens in two phases.
 // 1. main() calls kinit1() while still using entrypgdir to place just
@@ -34,12 +37,20 @@ kinit1(void *vstart, void *vend)
   initlock(&kmem.lock, "kmem");
   kmem.use_lock = 0;
   freerange(vstart, vend);
+
+  // TASK 3: first initialization pages in physical memory counter
+  // we'll take the vend-vstart size, and divide it by page size --> getting number of init1 pages in system
+  phys_mem_pages_stats.initial_pages_number = (((PGROUNDDOWN((uint) vend)) - (PGROUNDUP((uint) vstart))) / PGSIZE);
 }
 
 void
 kinit2(void *vstart, void *vend)
 {
   freerange(vstart, vend);
+
+  // TASK 3: second initialization pages in physical memory counter
+  // adding the pages from kinit2 to the pages set in kinit1
+  phys_mem_pages_stats.initial_pages_number += (((PGROUNDDOWN((uint) vend)) - (PGROUNDUP((uint) vstart))) / PGSIZE);
   kmem.use_lock = 1;
 }
 
@@ -51,6 +62,7 @@ freerange(void *vstart, void *vend)
   for(; p + PGSIZE <= (char*)vend; p += PGSIZE)
     kfree(p);
 }
+
 //PAGEBREAK: 21
 // Free the page of physical memory pointed at by v,
 // which normally should have been returned by a
@@ -61,7 +73,7 @@ kfree(char *v)
 {
   struct run *r;
 
-  if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP)
+  if((uint)v % PGSIZE || v < end || v2p(v) >= PHYSTOP)
     panic("kfree");
 
   // Fill with junk to catch dangling refs.
@@ -72,6 +84,7 @@ kfree(char *v)
   r = (struct run*)v;
   r->next = kmem.freelist;
   kmem.freelist = r;
+  phys_mem_pages_stats.current_number_of_free_pages++;            // TASK 3: Increment counter for every free page addition to system
   if(kmem.use_lock)
     release(&kmem.lock);
 }
@@ -88,7 +101,10 @@ kalloc(void)
     acquire(&kmem.lock);
   r = kmem.freelist;
   if(r)
+  {
     kmem.freelist = r->next;
+    phys_mem_pages_stats.current_number_of_free_pages--;            // TASK 3: Decrement counter for every free page allocation from system's memory
+  }
   if(kmem.use_lock)
     release(&kmem.lock);
   return (char*)r;
