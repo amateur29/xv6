@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "processInfo.h"
 
 struct {
   struct spinlock lock;
@@ -88,6 +89,8 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  
+  p->burst_time = 1;
 
   release(&ptable.lock);
 
@@ -199,6 +202,7 @@ fork(void)
   np->sz = curproc->sz;
   np->parent = curproc;
   *np->tf = *curproc->tf;
+  // np->burst_time = 15;
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
@@ -323,6 +327,7 @@ void
 scheduler(void)
 {
   struct proc *p;
+  struct proc *p1;
   struct cpu *c = mycpu();
   c->proc = 0;
   
@@ -330,11 +335,23 @@ scheduler(void)
     // Enable interrupts on this processor.
     sti();
 
-    // Loop over process table looking for process to run.
+    struct proc *nextProc =  0;
+    // Loop over process table looking for process to run.    
     acquire(&ptable.lock);
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
+        
+      nextProc = p;
+      // Choose one with lowest burst time
+      for(p1=ptable.proc; p1<&ptable.proc[NPROC];p1++){
+          if(p1->state != RUNNABLE)
+            continue;
+          if(nextProc->burst_time > p1->burst_time) // larger burst time, lower priority
+            nextProc = p1;
+      }
+      p = nextProc;
+    // proc = p;
 
       // Switch to chosen process.  It is the process's job
       // to release ptable.lock and then reacquire it
@@ -342,6 +359,8 @@ scheduler(void)
       c->proc = p;
       switchuvm(p);
       p->state = RUNNING;
+      //Increment context switch counter 
+      p->countcs++;
 
       swtch(&(c->scheduler), p->context);
       switchkvm();
@@ -532,3 +551,124 @@ procdump(void)
     cprintf("\n");
   }
 }
+
+int 
+getNumProc(void)
+{
+  struct proc *p;
+  int count = 0;
+
+  acquire(&ptable.lock);
+
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  {
+     if(p->state != UNUSED)
+        count++;
+  }
+
+  release(&ptable.lock);
+
+ return count;
+}
+
+
+int 
+getMaxPid(void)
+{
+  struct proc *p;
+  int maxpid = -1;
+
+  acquire(&ptable.lock);
+
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+  {
+     if(p->state != UNUSED && p->pid > maxpid)
+        maxpid = p->pid;
+  }
+
+  release(&ptable.lock);
+
+ return maxpid;
+}
+
+
+int
+getProcInfo(int pid, struct processInfo *processInfo)
+{
+  struct proc *p;
+  int flag = 0;
+
+  acquire(&ptable.lock);
+
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    if(p->pid == pid)
+    {
+      processInfo->ppid = p->parent->pid;
+      processInfo->psize = p->sz;
+      processInfo->numberContextSwitches = p->countcs;
+      flag=1;
+    }
+
+  release(&ptable.lock);
+  if(flag==1)
+    return 0;
+
+  return -1;
+}
+
+void
+set_burst_time(int n)
+{
+  struct cpu *c;
+  struct proc *p;
+  pushcli();
+  c = mycpu();
+  p = c->proc;
+  popcli();
+
+  p->burst_time = n;
+}
+
+int
+get_burst_time(void)
+{
+  struct cpu *c;
+  struct proc *p;
+  pushcli();
+  c = mycpu();
+  p = c->proc;
+  popcli();
+
+  return p->burst_time;
+}
+
+int
+cps(void)
+{
+    struct proc *p;
+
+    // Enable interrupts on this processor.
+    sti();
+
+    // Loop over process table looking for process with pid.
+    acquire(&ptable.lock);
+    cprintf("name \t pid \t state \t \t burst_time \n");
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+    {
+        if(p->state == SLEEPING)
+            cprintf("%s \t %d \t SLEEPING \t %d\n", p->name, p->pid, p->burst_time);
+        else if(p->state == RUNNING)
+            cprintf("%s \t %d \t RUNNING \t %d\n", p->name, p->pid, p->burst_time);
+        else if(p->state == RUNNABLE)
+            cprintf("%s \t %d \t RUNNABLE \t %d\n", p->name, p->pid, p->burst_time);
+        else if(p->state == EMBRYO)
+            cprintf("%s \t %d \t EMBRYO \t %d\n", p->name, p->pid, p->burst_time);
+        else if(p->state == ZOMBIE)
+            cprintf("%s \t %d \t ZOMBIE \t %d\n", p->name, p->pid, p->burst_time);
+    }
+
+    release(&ptable.lock);
+
+    return 22;
+}
+

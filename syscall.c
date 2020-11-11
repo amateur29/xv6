@@ -103,6 +103,13 @@ extern int sys_unlink(void);
 extern int sys_wait(void);
 extern int sys_write(void);
 extern int sys_uptime(void);
+extern int sys_wolfie(void);
+extern int sys_getNumProc(void);
+extern int sys_getMaxPid(void);
+extern int sys_getProcInfo(void);
+extern int sys_cps(void);
+extern int sys_set_burst_time(void);
+extern int sys_get_burst_time(void);
 
 static int (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -126,6 +133,13 @@ static int (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_wolfie]  sys_wolfie,
+[SYS_getNumProc] sys_getNumProc,
+[SYS_getMaxPid] sys_getMaxPid,
+[SYS_getProcInfo] sys_getProcInfo,
+[SYS_cps] sys_cps,
+[SYS_set_burst_time] sys_set_burst_time,
+[SYS_get_burst_time] sys_get_burst_time,
 };
 
 void
